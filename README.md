@@ -26,5 +26,3 @@ This is a project based on the Wokwi "Joke Machine," enhanced with 6 new interac
 * Buzzer
 * Photoresistor
 * Accelerometer (e.g., ADXL345)
-
-A+ Please~
