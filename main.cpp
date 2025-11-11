@@ -1,6 +1,6 @@
 /*
   ESP32 HTTPClient Jokes API Example
-  - Keypad Category Selector Mod -
+  - 최종 통합 버전 (키패드 카테고리 선택 및 평가 상태 관리) -
 
   https://wokwi.com/projects/342032431249883731
   Copyright (C) 2022, Uri Shaked
@@ -17,12 +17,12 @@
 const char* ssid = "Wokwi-GUEST";
 const char* password = "";
 
-
-// 사용 중인 핀: 2, 4, 5, 15, 18, 19, 23
-// Hardware SPI (18, 19, 23)는 라이브러리가 자동 사용
+// --- TFT 핀 설정 (기존 Joke Machine 핀 기준) ---
+// 사용 중인 핀: 2, 4, 5, 15, 18, 19, 23 (SPI 핀 포함)
 #define TFT_DC 2
 #define TFT_CS 15
-#define TFT_RST 4 // 리셋 핀 
+#define TFT_RST 4
+// Hardware SPI (18, 19, 23)는 라이브러리가 자동으로 사용합니다.
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 
 
@@ -37,14 +37,23 @@ char keys[ROWS][COLS] = {
 };
 // Rows: 27, 26, 25, 33
 // Cols: 32, 17, 16, 35
-byte rowPins[ROWS] = {27, 26, 25, 33}; 
-byte colPins[COLS] = {32, 17, 16, 35}; 
+byte rowPins[ROWS] = {27, 26, 25, 33};
+byte colPins[COLS] = {32, 17, 16, 35};
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+
+// --- 기계의 현재 상태를 정의 ---
+enum MachineState {
+  STATE_MENU,   // 카테고리 선택 대기 중
+  STATE_RATING  // 농담 평가 대기 중
+};
+MachineState currentState = STATE_MENU; // 시작은 메뉴 상태
 
 
 // URL을 동적으로 생성합니다.
 
-// getJoke 함수가 'category'를 인자로 받도록 수정
+
+// getJoke 함수가 'category'를 인자로 받도록
 String getJoke(String category) {
   HTTPClient http;
   http.useHTTP10(true);
@@ -52,7 +61,7 @@ String getJoke(String category) {
   // 카테고리를 포함한 URL을 동적으로 생성
   String url = "https://v2.jokeapi.dev/joke/" + category;
   http.begin(url);
-  
+
   http.GET();
   String result = http.getString();
 
@@ -84,6 +93,40 @@ void nextJoke(String category) {
   tft.println(joke);
 }
 
+// 메뉴 화면 출력 함수
+void showMenu() {
+  currentState = STATE_MENU; // 상태를 메뉴로 설정
+
+  tft.fillScreen(ILI9341_BLACK);
+  tft.setCursor(0, 0);
+  tft.setTextColor(ILI9341_YELLOW);
+  tft.setTextSize(2);
+  tft.println("\nSelect Category:");
+  tft.println("1:Misc 2:Prog");
+  tft.println("3:Dark 4:Pun");
+  tft.println("5:Spooky 6:X-mas");
+  tft.println("7:Any");
+}
+
+// 평가 완료 화면 함수
+void showRatingThankYou(char score) {
+  tft.setTextColor(ILI9341_CYAN);
+  tft.setTextSize(2);
+  tft.print("\n\nRating: ");
+  tft.print(score);
+  tft.println("/5");
+  tft.println("Thank you!");
+
+  // [TODO] 여기서 서보 모터 웃는 시늉 함수 호출
+  // smileServoAction(score);
+  // [TODO] 여기서 부저 효과음 함수 호출
+  // playSound(score);
+
+  delay(2000); 
+  showMenu();  // 2초 보여주고 다시 메뉴로 돌아감
+}
+
+
 void setup() {
 
   WiFi.begin(ssid, password, 6);
@@ -100,19 +143,15 @@ void setup() {
     tft.print(".");
   }
 
+  // IP 주소 출력 후 바로 메뉴 호출
   tft.fillScreen(ILI9341_BLACK); // 화면 정리
   tft.setCursor(0, 0);
   tft.print("OK! IP=");
   tft.println(WiFi.localIP());
 
-  // 자동 농담 로딩 대신 안내 메시지 출력
-  tft.setTextColor(ILI9341_YELLOW);
-  tft.setTextSize(2);
-  tft.println("\nPress Key (1-7)");
-  tft.println("1:Misc 2:Programming");
-  tft.println("3:Dark 4:Pun");
-  tft.println("5:Spooky 6:Christmas");
-  tft.println("7:Any");
+  delay(1000); // IP 주소 잠시 표시
+  
+  showMenu(); // 메뉴 화면 호출
 }
 
 void loop() {
@@ -120,48 +159,56 @@ void loop() {
   char key = keypad.getKey();
 
   if (key != NO_KEY) {
-    String category = "";
 
-    // 키 값에 따라 카테고리 매핑
-    switch (key) {
-      case '1':
-        category = "Misc";
-        break;
-      case '2':
-        category = "Programming";
-        break;
-      case '3':
-        category = "Dark";
-        break;
-      case '4':
-        category = "Pun";
-        break;
-      case '5':
-        category = "Spooky";
-        break;
-      case '6':
-        category = "Christmas";
-        break;
-      case '7':
-        category = "Any";
-        break;
-      default:
-        // 1-7 외의 키는 무시
-        break;
+    // ------------------------------------------------
+    // 상황 1: 메뉴 고르는 상태일 때 (STATE_MENU)
+    // ------------------------------------------------
+    if (currentState == STATE_MENU) {
+      String category = "";
+      switch (key) {
+        case '1': category = "Misc"; break;
+        case '2': category = "Programming"; break;
+        case '3': category = "Dark"; break;
+        case '4': category = "Pun"; break;
+        case '5': category = "Spooky"; break;
+        case '6': category = "Christmas"; break;
+        case '7': category = "Any"; break;
+        default: break; // 엉뚱한 키 무시
+      }
+
+      if (category.length() > 0) {
+        tft.fillScreen(ILI9341_BLACK);
+        tft.setCursor(0, 0);
+        tft.setTextColor(ILI9341_YELLOW);
+        tft.setTextSize(2);
+        tft.println("Selected: " + category);
+
+        // 해당 카테고리로 새 농담 요청
+        nextJoke(category);
+
+        // 농담을 보여줬으니, 이제 상태를 '평가 대기'로 바꿈
+        currentState = STATE_RATING;
+
+        tft.setTextColor(ILI9341_MAGENTA);
+        tft.println("\nRate this joke (1-5)");
+        tft.println("or press '*' to skip");
+      }
     }
 
-    // 유효한 카테고리(1-7)가 선택된 경우에만 실행
-    if (category.length() > 0) {
-      tft.fillScreen(ILI9341_BLACK);
-      tft.setCursor(0, 0);
-      
-      // 사용자 피드백: 어떤 카테고리를 선택했는지 표시
-      tft.setTextColor(ILI9341_YELLOW);
-      tft.setTextSize(2);
-      tft.println("Selected: " + category);
-      
-      // 해당 카테고리로 새 농담 요청
-      nextJoke(category);
+    // ------------------------------------------------
+    // 상황 2: 평가 기다리는 상태일 때 (STATE_RATING)
+    // ------------------------------------------------
+    else if (currentState == STATE_RATING) {
+      if (key >= '1' && key <= '5') {
+        // 1~5점 사이의 점수를 누름
+        showRatingThankYou(key);
+        // [TODO] 여기서 MQTT로 점수를 보내거나 저장하는 코드 추가
+      }
+      else if (key == '*') {
+        // 평가 건너뛰기
+        showMenu();
+      }
+      // 그 외의 키를 누르면 무시
     }
   }
 
