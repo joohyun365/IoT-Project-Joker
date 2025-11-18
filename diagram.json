@@ -100,7 +100,8 @@
     [ "servo2:PWM", "esp:13", "blue", [ "h230.4", "v182.2" ] ],
     [ "bz1:1", "bb1:tn.17", "black", [ "h0" ] ],
     [ "bz1:2", "esp:14", "cyan", [ "h196.8", "v77.2" ] ],
-    [ "keypad1:C4", "esp:0", "orange", [ "v0" ] ]
+    [ "keypad1:C4", "esp:0", "orange", [ "v0" ] ],
+    [ "lcd1:LED", "esp:5", "limegreen", [ "h0" ] ]
   ],
   "dependencies": {}
 }
